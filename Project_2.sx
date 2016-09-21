@@ -1,0 +1,892 @@
+
+/* PROJECT 2 */
+
+/* TABLE OF CONTENT */
+/* 1. SAS IML CODE:
+/*        - Exponential distribution
+/*        - Normal distribution
+/*        - Gamma distribution
+
+/* 2. R CODE:
+/*        - Exponential distribution
+/*        - Normal distribution
+/*        - Gamma distribution
+
+/* 3. SIMULATIONS:
+/*        - Varying the sample size
+/*        - Varying the optimization method
+/*        - Varying the parameters of the parent distribution */
+
+
+/* ######################################################################################################################## */
+
+/* EXPONENTIAL DISTRIBUTION */
+
+/* Simulates data as a vector */
+start simul_exp(samp_size, nsims, myseed, lambda);
+  /* Purpose: generate random data from an exponential distribution
+     Input: samp.size - sample size
+            nsims - number of samples to generate
+            myseed - set a seed for the random generator
+            lambda - rate parameter of the exponential from which to sample from
+     Output: a matrix of random deviates. Dimensions: samp.size x nsims */
+  
+ run ExportMatrixToR(samp_size, "samp.size");
+ run ExportMatrixToR(myseed, "myseed");
+ run ExportMatrixToR(nsims, "nsims");
+ run ExportMatrixToR(lambda, "lambda");
+ submit / R;
+  mat <- matrix(data = NA, nrow= samp.size , ncol = nsims);
+  set.seed(myseed);
+  x <- apply(mat, 2, rexp, rate= lambda);
+ endsubmit;
+ run ImportMatrixFromR( dat, "x");
+ return(dat);
+finish simul_exp;
+
+
+/* Estimates MLE for lambda */
+start MLE_exp(guess) global(dat_exp);    /* If it doesn't work anymore, take away this global statement */
+/* Purpose: finds the MLE for the rate parameter
+   Input: dat_exp - a vector of random deviates
+          guess - a scalar to be used as starting point for the updating equation
+   Output: MLE for lambda. A scalar
+   */
+
+  start log_like_exp(param) global(dat_exp);   
+  /* Purpose: define log-likelihood for the exponential
+   Input: dat_exp - a vector of random deviates
+          param - lambda. A scalar
+   Output: log-likelihood. A scalar
+   */
+
+   n = nrow(dat_exp);
+   summa = sum(dat_exp);
+   obj_fun = (n * log(param)) - (param * summa);
+   return(obj_fun);
+  finish log_like_exp;
+  
+  con = {0,  
+         .}; 
+  opt = {1, 0};                                          
+  call nlpnra(rc, result, "log_like_exp", guess, opt, con);
+ return(result);
+finish MLE_exp;
+
+/*:::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::*/
+
+
+/* Simulates data and estimates MLE for lambda */
+
+start simul_mle_exp(samp_size, nsims, myseed, lambda, guess) global(dat_exp);   /* I recognized it too late but this wrapper module is probably redundant */
+/* Purpose: wrapper function for data simulation and MLEs estimation
+   Input: dat_exp - a vector of random deviates
+          guess - a scalar to be used as starting point for the updating equation
+		  samp.size - sample size
+          nsims - number of samples to generate
+          myseed - set a seed for the random generator
+          lambda - rate parameter of the exponential from which to sample from
+   Output: MLEs for lambda. A vector */
+   
+ samples = simul_exp(samp_size, nsims, myseed, lambda);
+ holder = j(nsims, 1, 0);
+ do i= 1 to nsims;
+  dat_exp = samples[ , i];
+  holder[i] = MLE_exp(guess);
+ end;
+ return(holder);
+finish simul_mle_exp;
+
+
+/*:::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::*/
+/* MSE calculation */
+
+start MSE_exp(mle, true_param);
+/*  Purpose: calculates the MSE for the exponential distribution
+   Input: mle - a vector of parameter estimates
+          true.par - the true parameter of the distribution generating data
+   Output: MSE for the parameter. A scalar
+   */
+
+  m = nrow(mle);
+  summa = sum((mle - true_param)##2);
+  mse = (1/m)*summa;
+  return(mse);
+finish MSE_exp;
+
+
+/*:::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::*/
+
+
+start exp_optim_mse(samp_size, nsims, myseed, lambda, initial);
+/*  Purpose: wrapper for exponential
+   Input: initial - a scalar to be used as starting point for the updating equation
+		  samp.size - sample size
+          nsims - number of samples to generate
+          myseed - set a seed for the random generator
+          lambda - rate parameter of the exponential from which to sample from
+   Output: MSE for the parameter. A scalar
+   */
+prova= simul_mle_exp(samp_size, nsims, myseed, lambda, initial);
+k = MSE_exp(prova, lambda);
+return(k);
+finish exp_optim_mse;
+
+/* ######################################################################################################################## */
+
+
+/* NORMAL DISTRIBUTION */
+
+/* Simulate data from Normal distribution */
+
+start simul_norm(samp_size, nsims, myseed, mean, stdev);
+  /* Purpose: generate random data from a normal distribution
+   Input: samp.size - sample size
+          nsims - number of samples to generate
+          myseed - set a seed for the random generator
+          mean - mean of the normal from which to sample from
+          stdev - standard deviation of the normal from which to sample from
+   Output: a matrix of random deviates. Dimensions: samp.size x nsims */
+  
+ run ExportMatrixToR(samp_size, "samp.size");
+ run ExportMatrixToR(myseed, "myseed");
+ run ExportMatrixToR(nsims, "nsims");
+ run ExportMatrixToR(mean, "mean");
+ run ExportMatrixToR(stdev, "stdev");
+ submit / R;
+  mat <- matrix(data = NA, nrow= samp.size , ncol = nsims)
+  set.seed(myseed)
+  x <- apply(mat, 2, rnorm, mean= mean, sd= stdev)
+ endsubmit;
+ run ImportMatrixFromR( dat, "x");
+ return(dat);
+finish simul_norm;
+
+
+/*:::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::*/
+
+/* Estimate MLE for mean and stdev */
+
+start MLE_norm(guess) global(dat_norm);           
+/* Purpose: finds the MLE for the mean and st.dev of a Normal distribution
+   Input: dat_norm - a vector of random deviates
+          guess - starting values for mean and st.dev. Must be a VECTOR.
+   Output: MLE for mean and st.dev. A vector. */
+
+ start log_like_norm(param) global(dat_norm);
+ /* Purpose: defines the log-likelihood for Normal distribution
+   Input: dat_norm - a vector of random deviates
+          param - for mean and st.dev. Must be a VECTOR.
+   Output: log-likelihood value. A scalar */
+   
+   mu= param[1];
+   sigma= param[2];
+   n= nrow(dat_norm);
+   summa= sum((dat_norm - mu)##2);
+   term1= -(n/2)*log(sigma**2);
+   term2= 1/(2*sigma**2);
+   obj_fun= term1 - term2*summa;
+   return(obj_fun);
+  finish log_like_norm;
+
+con = { .   0,  
+        .   .}; 
+  opt = {1, 0};                                          
+  call nlpnra(rc, result, "log_like_norm", guess, opt, con);
+ return(result);
+finish MLE_norm;
+
+
+/*:::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::*/
+
+
+/* Simulates data and estimates MLE for mean and stdev */
+start simul_mle_norm(samp_size, nsims, myseed, mean, stdev, guess) global(dat_norm);
+/* Purpose: wrapper function for data simulation and MLEs estimation
+   Input: dat_norm - a vector of random deviates
+          guess - a scalar to be used as starting point for the updating equation
+		  samp.size - sample size
+          nsims - number of samples to generate
+          myseed - set a seed for the random generator
+          mean - mean of the normal from which to sample from
+          stdev - standard deviation of the normal from which to sample from
+   Output: MLEs for mean and stdev. A matrix */
+
+ samples = simul_norm(samp_size, nsims, myseed, mean, stdev);
+ holder = j(nsims, 2, 0);
+ do i= 1 to nsims;
+  dat_norm = samples[ , i];
+  holder[i, ] = MLE_norm(guess);
+ end;
+ return(holder);
+finish simul_mle_norm;
+
+
+
+/*::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::*/
+/* MSE calculation */
+
+start MSE_2D(mle, true_param);
+/* Purpose: calculates the MSE for two dimensions
+   Input: mle - a matrix of parameter estimates
+          true.par - the true parameters of the distribution generating data. Must be a VECTOR!
+   Output: MSE for the parameters. A vector
+   */
+
+  m = nrow(mle);
+  true_p1= true_param[1];
+  true_p2= true_param[2];
+  mle_p1= mle[ , 1];
+  mle_p2= mle[ , 2];
+  summa_p1= sum((mle_p1 - true_p1)##2);
+  summa_p2= sum((mle_p2 - true_p2)##2);
+  mse_p1 = (1/m)*summa_p1;
+  mse_p2 = (1/m)*summa_p2;
+  return(mse_p1 || mse_p2);
+finish MSE_2D;
+
+
+
+
+/*:::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::*/
+
+start norm_optim_mse(samp_size, nsims, myseed, mean, stdev, guess);
+/* Purpose: wrapper function for the Normal
+   Input: guess - a scalar to be used as starting point for the updating equation
+		  samp.size - sample size
+          nsims - number of samples to generate
+          myseed - set a seed for the random generator
+          mean - mean of the normal from which to sample from
+          stdev - standard deviation of the normal from which to sample from
+   Output: MLEs for mean and stdev. A matrix */
+
+tru= mean || stdev;
+prova= simul_mle_norm(samp_size, nsims, myseed, mean, stdev, guess);
+k = MSE_2D(prova, tru);
+return(k);
+finish norm_optim_mse;
+
+
+
+
+/* ######################################################################################################################## */
+
+/* Gamma distribution */
+
+/* Simulates data as a vector */
+start simul_gamma(samp_size, nsims, myseed, shape, rate);
+  /* Purpose: generate random data from a gamma distribution
+     Input: samp.size - sample size
+            nsims - number of samples to generate
+            myseed - set a seed for the random generator
+            shape - shape parameter of the Gamma from which to sample from
+			rate - rate parameter of the Gamma from which to sample from
+     Output: a matrix of random deviates. Dimensions: samp.size x nsims */
+  
+ run ExportMatrixToR(samp_size, "samp.size");
+ run ExportMatrixToR(myseed, "myseed");
+ run ExportMatrixToR(nsims, "nsims");
+ run ExportMatrixToR(shape, "shape");
+ run ExportMatrixToR(rate, "rate");
+ submit / R;
+  mat <- matrix(data = NA, nrow= samp.size , ncol = nsims);
+  set.seed(myseed);
+  x <- apply(mat, 2, rgamma, shape= shape, rate= rate);
+ endsubmit;
+ run ImportMatrixFromR(dat, "x");
+ return(dat);
+finish simul_gamma;
+
+/*:::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::*/
+
+
+start MLE_gamma(guess) global(dat_gamma);             
+/* Purpose: finds the MLE for the shape and rate of a Gamma distribution
+   Input: dat_gamma - a vector of random deviates
+          guess - starting values for shape and rate. Must be a VECTOR.
+   Output: MLE for shape and rate. A vector. */
+
+ start log_like_gamma(param) global(dat_gamma);
+ /* Purpose: defines the log-likelihood Gamma distribution
+ Input: dat_gamma - a vector of random deviates
+          param - for shape and rate. Must be a VECTOR.
+   Output: log-likelihood value. A scalar */
+   
+   alpha= param[1];
+   beta= param[2];
+   n= nrow(dat_gamma);
+   term1 = n*alpha*log(beta)-n*log(gamma(alpha));
+   term2 = (alpha-1)*sum(log(dat_gamma))-beta*sum(dat_gamma);
+   obj_fun = term1+term2;
+   return(obj_fun);
+ finish log_like_gamma;
+
+  con = { 0.0001   0.0001,             /* Writing zero as constraints seemed to block the calculations. Hence used a "good-enough" constraints */
+        .   .}; 
+  opt = {1, 0};                                          
+  call nlpnra(rc, result, "log_like_gamma", guess, opt, con);
+ return(result);
+finish MLE_gamma;
+
+/*:::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::*/
+
+/* Simulates data and estimates MLE for shape and rate */
+start simul_mle_gamma(samp_size, nsims, myseed, shape, rate, guess) global(dat_gamma);
+/* Purpose: wrapper function for data simulation and MLEs estimation
+   Input: dat_gamma - a vector of random deviates
+          guess - a scalar to be used as starting point for the updating equation
+		  samp.size - sample size
+          nsims - number of samples to generate
+          myseed - set a seed for the random generator
+          shape - shape of the Gamma from which to sample from
+          rate - rate of the Gammafrom which to sample from
+   Output: MLEs for shape and rate. A matrix */
+
+ samples = simul_gamma(samp_size, nsims, myseed, shape, rate);
+ holder = j(nsims, 2, 0);
+ do i= 1 to nsims;
+  dat_gamma = samples[ , i];
+  holder[i, ] = MLE_gamma(guess);
+ end;
+ return(holder);
+finish simul_mle_gamma;
+
+
+/*:::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::*/
+
+
+start gamma_optim_mse(samp_size, nsims, myseed, shape, rate, guess);
+/* Purpose: wrapper function for Gamma
+   Input: guess - a scalar to be used as starting point for the updating equation
+		  samp.size - sample size
+          nsims - number of samples to generate
+          myseed - set a seed for the random generator
+          shape - shape of the Gamma from which to sample from
+          rate - rate of the Gammafrom which to sample from
+   Output: MLEs for shape and rate. A matrix */
+
+tru= shape || rate;
+prova= simul_mle_gamma(samp_size, nsims, myseed, shape, rate, guess);
+k = MSE_2D(prova, tru);
+return(k);
+finish gamma_optim_mse;
+
+
+
+/* ######################################################################################################################## */
+
+/* R CODE */
+
+/* Exponential distribution */
+
+start exp_optim_mse_R(samp_size, nsims, myseed, lambda, start_values);
+/* Purpose: calls the R code to compute the MSE for the MLE. Exponential distribution
+Inputs: samp_size - sample size onto which estimate the MLE
+        nsims - number of simulations to do
+		myseed - set the seed for the random number generator
+		lambda - the rate parameter for the parent distribution from which to sample from
+		start_values - an interval that contains the true lambda */ 
+
+ run ExportMatrixToR(samp_size, "samp.size");
+ run ExportMatrixToR(myseed, "myseed");
+ run ExportMatrixToR(nsims, "nsims");
+ run ExportMatrixToR(lambda, "lambda");
+ run ExportMatrixToR(start_values, "start.values");
+
+submit / R;
+
+loglik.exp <- function(dat, lambda){
+  # Purpose: creates the log-likelihood function for the exponential distribution
+  # Input: data - a vector of random deviates
+  #        lambda - the rate parameter
+  # Output: evaluation of the log-likelihood. A scalar
+  
+  n <- length(dat)
+  obj.fun <- n * log(lambda) - lambda * sum(dat)
+  return(obj.fun)
+}  
+
+mle.exp <- function(dat, start.values){
+  # Purpose: finds the MLE for the rate parameter
+  # Input: data - a vector of random deviates
+  #        start.values - an interval that contains the maximum. Must be a VECTOR.
+  # Output: MLE for lambda. A scalar
+  
+  optimized <- optimize(f = loglik.exp, interval = start.values, maximum = T, dat = dat)
+  lambda.star <- optimized$maximum
+  return(lambda.star)
+}
+
+MSE.oneD <- function(mle, true.par){
+  # Purpose: calculates the MSE for one dimension
+  # Input: mle - a vector of parameter estimates
+  #        true.par - the true parameter of the distribution generating data
+  # Output: MSE for the parameter. A scalar
+  
+  m <- length(mle)
+  sqr <- (mle - true.par)^2
+  result <- sum(sqr)/m
+  return(result)
+}
+
+dat.gen.exp <- function(samp.size, nsims, myseed, lambda){
+  # Purpose: generates random deviates from the exponential distribution
+  # Input: samp.size - sample size
+  #        nsims - number of samples to generate
+  #        lambda - rate parameter for the exp distribution
+  #        myseed - set the seed for the random number generator
+  # Output: a matrix of dimensions sample.size x nsims of exponential random deviates
+
+  mat <- matrix(data = NA, nrow= samp.size , ncol = nsims)
+  set.seed(myseed)
+  dat <- apply(mat, 2, rexp, rate= lambda)
+  return(dat)
+}
+
+exp.simul.mse <- function(samp.size, nsims, myseed, lambda, start.values){
+  # Purpose: wrapper function for the exponential distribution
+  # Input: samp.size - sample size
+  #        nsims - number of samples to generate
+  #        lambda - rate parameter for the exp distribution
+  #        start.values - starting values for the optimization algorithm. Must be a VECTOR.
+  # Output: MSE for the parameter estimates
+  
+  dat <- dat.gen.exp(samp.size, nsims, myseed, lambda)
+  estimated <-apply(dat, 2, mle.exp, start.values= start.values)
+  result <- MSE.oneD(estimated, true.par = lambda)
+  return(result)
+}
+
+# Call the functions
+
+mse.exp <- exp.simul.mse(samp.size, nsims, myseed, lambda, start.values);
+endsubmit; 
+
+run ImportMatrixFromR(mse_exp, "mse.exp");
+return(mse_exp);
+
+finish exp_optim_mse_R;
+
+/* :::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::: */
+
+/* NORMAL DISTRIBUTION */
+
+start norm_optim_mse_R(samp_size, nsims, myseed, mean, stdev, initial_par, method);
+/* Purpose: calls the R code to compute the MSE for the MLEs for the Normal distribution
+Inputs: samp_size - sample size onto which estimate the MLEs
+        nsims - number of simulations to do
+		myseed - set the seed for the random number generator
+		mean - mean of the parent distribution 
+		stdev - standard deviation of the parent distribution
+		initial_par - a VECTOR of initial guesses for the parameters
+		method - either "BFGS" of "Nelder-Mead": chooses the optimization method */ 
+
+ run ExportMatrixToR(samp_size, "samp.size");
+ run ExportMatrixToR(myseed, "myseed");
+ run ExportMatrixToR(nsims, "nsims");
+ run ExportMatrixToR(mean, "mean");
+ run ExportMatrixToR(stdev, "stdev");
+ run ExportMatrixToR(initial_par, "initial.par");
+ run ExportMatrixToR(method, "method");
+
+submit / R;
+
+# Normal Distribution
+
+
+loglik.norm <- function(param, dat) {
+  # Purpose: creates the log-likelihood function for the normal distribution
+  # Input: dat - a vector of random deviates
+  #        param - a vector with the mean and st.dev parameters
+  # Output: evaluation of the log-likelihood. A scalar
+  
+  n <- length(dat)
+  mean <- param[1]
+  sigma <- param[2]
+  term1 <- (-n/2)*log(sigma^2)
+  term2 <- (1/(2*sigma^2))
+  term3 <- sum((dat - mean)^2)
+  obj.fun <- term1 - term2*term3
+  return(obj.fun)
+}
+
+mle.norm.NM <- function(x, initial.par){
+  # Purpose: finds the MLE for the mean and st.dev of a Normal distribution using Nelder-Mead method
+  # Input: x - a vector of random deviates
+  #        initial.par - starting values for mean and st.dev. Must be a VECTOR.
+  # Output: MLE for mean and st.dev. A vector.
+  
+  optimized <- optim(par= initial.par, fn= loglik.norm, method= "Nelder-Mead", dat= x,
+                     control = list(fnscale= -1))
+  param.star <- optimized$par
+  names(param.star) <- c("shape", "rate")
+  return(param.star)
+}
+
+mle.norm.BFGS <-  function(x, initial.par, gr= NULL){
+  # Purpose: finds the MLE for the mean and st.dev of a Normal distribution using BFGS method
+  # Input: x - a vector of random deviates
+  #        initial.par - starting values for mean and st.dev. Must be a VECTOR.
+  #        gr - a function for the gradient
+  # Output: MLE for mean and st.dev. A vector.
+  
+  optimized <- optim(par= initial.par, fn= loglik.norm, gr= NULL, method= "L-BFGS-B", dat= x,
+                     control = list(fnscale= -1), lower = c(-Inf, 0))
+  param.star <- optimized$par
+  names(param.star) <- c("shape", "rate")
+  return(param.star)
+}
+
+MSE.multiD <- function(mle, true.par){
+  # Purpose: calculates the MSE for multiple dimensions
+  # Input: mle - a matrix of parameter estimates
+  #        true.par - the true parameters of the distribution generating data. Must be a VECTOR!
+  # Output: MSE for the parameters. A vector
+  
+  m <- ncol(mle)
+  sqr <- (mle - true.par)^2
+  sum.sqr <- apply(sqr, 1, sum)
+  result <- unname(sum.sqr/m)
+  return(result)
+} 
+
+dat.gen.norm <- function(samp.size, nsims, myseed, mean, stdev){
+  # Purpose: generates random deviates from the Normal distribution
+  # Input: samp.size - sample size
+  #        nsims - number of samples to generate
+  #        mean - mean for the distribution
+  #        stdev - standard deviation for the distribution
+  #        myseed - set the seed for the random number generator     
+  # Output: a matrix of dimensions sample.size x nsims of normal random deviates
+
+  mat <- matrix(data = NA, nrow= samp.size , ncol = nsims)
+  set.seed(myseed)
+  dat <- apply(mat, 2, rnorm, mean= mean, sd= stdev)
+  return(dat)
+}
+
+norm.simul.mse <- function(samp.size, nsims, myseed, mean, stdev, initial.par, method="Nelder-Mead"){
+  # Purpose: wrapper function for the Normal distribution
+  # Input: samp.size - sample size
+  #        nsims - number of samples to generate
+  #        mean - mean for the distribution
+  #        stdev - standard deviation for the distribution
+  #        myseed - set the seed for the random number generator     
+  #        initial.par - initial guesses. Must be a VECTOR
+  #        method - either "Nelder-Mead" or "BFGS". The optimization method to use.
+  # Output: MSE for the parameter estimates
+
+  if(method == "Nelder-Mead"){
+    data <- dat.gen.norm(samp.size, nsims, myseed, mean, stdev)
+    mle <-apply(data, 2, mle.norm.NM, initial.par= initial.par)
+    result <- MSE.multiD(mle, c(mean, stdev))
+  } else {
+    data <- dat.gen.norm(samp.size, nsims, myseed, mean, stdev)
+    mle <-apply(data, 2, mle.norm.BFGS, initial.par= initial.par)
+    result <- MSE.multiD(mle, c(mean, stdev))
+  }
+  return(result)
+}
+
+
+# Call the function
+mse.norm <- norm.simul.mse(samp.size, nsims, myseed, mean, stdev, initial.par, method)
+
+endsubmit;
+run ImportMatrixFromR(mse_norm, "mse.norm");
+mse_norm= t(mse_norm);
+return(mse_norm);
+
+finish norm_optim_mse_R;
+
+
+
+/* ######################################################################################################################## */
+
+/* GAMMA DISTRIBUTION */
+
+start gamma_optim_mse_R(samp_size, nsims, myseed, shape, rate, initial_par, method);
+/* Purpose: calls the R code to compute the MSE for the MLEs for the Gamma distribution
+Inputs: samp_size - sample size onto which estimate the MLEs
+        nsims - number of simulations to do
+		myseed - set the seed for the random number generator
+		shape - shape of the parent distribution 
+		rate - rate of the parent distribution
+		initial_par - a VECTOR of initial guesses for the parameters
+		method - either "BFGS" of "Nelder-Mead": chooses the optimization method */ 
+
+ run ExportMatrixToR(samp_size, "samp.size");
+ run ExportMatrixToR(myseed, "myseed");
+ run ExportMatrixToR(nsims, "nsims");
+ run ExportMatrixToR(shape, "shape");
+ run ExportMatrixToR(rate, "rate");
+ run ExportMatrixToR(initial_par, "initial.par");
+ run ExportMatrixToR(method, "method");
+
+
+submit /R;
+
+loglik.gamma <- function(param, dat){
+  # Purpose: creates the log-likelihood function for the gamma distribution
+  # Input: dat - a vector of random deviates
+  #        param - a vector with the shape and rate parameters
+  # Output: evaluation of the log-likelihood. A scalar
+  
+  
+  n <- length(dat)
+  alpha <- param[1]
+  beta <- param[2]
+  term1 <- n * alpha * log(beta) - n * log(gamma(alpha))
+  term2 <- (alpha-1) * sum(log(dat)) - beta * sum(dat)
+  obj.fun <- term1 + term2
+  return(obj.fun)
+}
+
+dat.gen.gamma <- function(samp.size, nsims, myseed, shape, rate){
+  # Purpose: generate random data from a gamma distribution
+  # Input: samp.size - sample size
+  #        nsims - number of samples to generate
+  #        myseed - set a seed for the random generator
+  #        shape - shape parameter of the gamma from which to sample from
+  #        rate - rate parameter of the gamma from which to sample from
+  # Output: a matrix of random deviates. Dimensions: samp.size x nsims
+  
+  mat <- matrix(data = NA, nrow= samp.size , ncol = nsims)
+  set.seed(myseed)
+  dat <- apply(mat, 2, rgamma, shape= shape, rate= rate)
+  return(dat)
+}
+
+MSE.multiD <- function(mle, true.par){
+  # Purpose: calculates the MSE for multiple dimensions
+  # Input: mle - a matrix of parameter estimates
+  #        true.par - the true parameters of the distribution generating data. Must be a VECTOR!
+  # Output: MSE for the parameters. A vector
+  
+  m <- ncol(mle)
+  sqr <- (mle - true.par)^2
+  sum.sqr <- apply(sqr, 1, sum)
+  result <- unname(sum.sqr/m)
+  return(result)
+} 
+
+mle.gamma.NM <- function(x, initial.par){
+  # Purpose: finds the MLE for the shape and rate of a gamma distribution using the Nelder-Mead method
+  # Input: x - a vector of random deviates
+  #        initial.par - starting values for shape and rate. Must be a VECTOR.
+  # Output: MLE for shape and rate. A vector.
+  
+  optimized <- optim(par= initial.par, fn= loglik.gamma, method= "Nelder-Mead", dat= x,
+                     control = list(fnscale= -1))
+  param.star <- optimized$par
+  names(param.star) <- c("shape", "rate")
+  return(param.star)
+}
+
+mle.gamma.BFGS <- function(x, initial.par, gr= NULL){
+  # Purpose: finds the MLE for the shape and rate of a gamma distribution using the BFGS method
+  # Input: x - a vector of random deviates
+  #        initial.par - starting values for shape and rate. Must be a VECTOR.
+  # Output: MLE for shape and rate. A vector.
+  
+  optimized <- optim(par= initial.par, fn= loglik.gamma, gr= NULL, method= "L-BFGS-B", dat= x,
+                     control = list(fnscale= -1), lower = c(0, 0))
+  param.star <- optimized$par
+  names(param.star) <- c("shape", "rate")
+  return(param.star)
+}
+
+gamma.simul.mse <- function(samp.size, nsims, myseed, shape, rate, initial.par, method="Nelder-Mead"){
+  # Purpose: wrapper function for the Normal distribution
+  # Input: samp.size - sample size
+  #        nsims - number of samples to generate
+  #        shape - shape for the distribution
+  #        rate - rate deviation for the distribution
+  #        myseed - set the seed for the random number generator     
+  #        initial.par - initial guesses. Must be a VECTOR
+  #        method - either "Nelder-Mead" or "BFGS". The optimization method to use.
+  # Output: MSE for the parameter estimates
+
+  if(method == "Nelder-Mead"){
+   data <- dat.gen.gamma(samp.size, nsims, myseed, shape, rate)
+   mle <-apply(data, 2, mle.gamma.NM, initial.par= initial.par)
+   result <- MSE.multiD(mle, c(shape, rate))
+  } else {
+    data <- dat.gen.gamma(samp.size, nsims, myseed, shape, rate)
+    mle <-apply(data, 2, mle.gamma.BFGS, initial.par= initial.par)
+    result <- MSE.multiD(mle, c(shape, rate))
+  }
+  return(result)
+}
+
+# Invoke functions
+mse.gamma <- gamma.simul.mse(samp.size, nsims, myseed, shape, rate, initial.par, method)
+
+endsubmit;
+run ImportMatrixFromR( mse_gamma, "mse.gamma");
+mse_gamma= t(mse_gamma);
+return(mse_gamma);
+
+finish gamma_optim_mse_R;
+
+
+
+
+/* ######################################################################################################################## */
+
+/* SIMULATIONS */
+
+/* Varying the sample size */
+
+/* Exponential distribution */
+
+start_values= 0.1 || 2;
+sample = {20, 30, 50, 80, 100, 200};
+exp= j(nrow(sample), 1, .);
+exp_R= j(nrow(sample), 1, .);
+do i=1 to nrow(sample);
+n= sample[i];
+exp[i]= exp_optim_mse(n, 1000, 1234, 1, 0.1);
+exp_R[i]= exp_optim_mse_R(n, 1000, 1234, 1, start_values);
+end;
+
+exp= round(exp, 0.001);
+exp_R= round(exp_R, 0.001);
+
+print sample exp_R exp;
+
+/* Line plot */
+holder= sample || exp_R || exp;
+run ExportMatrixToR(holder, "holder");
+submit / R;
+x <- holder[ , 1]
+y <- holder[ , 2]
+z <- holder[ , 3]
+plot(x, y, type= "l", col= "red", xlab= "Sample size", ylab="MSE", main= "EXPONENTIAL: MSE for the rate", lwd=2)
+lines(x, z, col="blue", lwd= 2)
+text <- c("MSE in R", "MSE in IML")
+legend("topright", legend= text, col= c("red", "blue"), pch= "22")
+endsubmit;
+
+/* Normal distribution */
+
+sample = {20, 30, 50, 80, 100, 200};
+norm= j(nrow(sample), 2, .);
+norm_R= j(nrow(sample), 2, .);
+guess= 1 || 2;
+method= {"L-BFGS-B"};
+do i=1 to nrow(sample);
+n= sample[i];
+norm[i, ]= norm_optim_mse(n, 1000, 1234, 2, 3, guess);
+norm_R[i, ]= norm_optim_mse_R(n, 1000, 1234, 2, 3, guess, method);
+end;
+
+norm= round(norm, 0.001);
+norm_R= round(norm_R, 0.001);
+
+print sample norm_R norm;
+
+/* Line plot */
+holder= sample || norm_R || norm;
+run ExportMatrixToR(holder, "holder");
+submit / R;
+x <- holder[ , 1]
+y <- holder[ , 2]
+z <- holder[ , 4]
+plot(x, y, type= "l", col= "red", xlab= "Sample size", ylab="MSE", main= "NORMAL: MSE for the mean")
+lines(x, z, col="blue")
+text <- c("MSE in R", "MSE in IML")
+legend("topright", legend= text, col= c("red", "blue"), pch= "l")
+endsubmit;
+
+submit / R;
+y1 <- holder[ , 3]
+z1 <- holder[ , 5]
+plot(x, y1, type= "l", col= "red", xlab= "Sample size", ylab="MSE", main= "NORMAL: MSE for the stdev")
+lines(x, z1, col="blue")
+text <- c("MSE in R", "MSE in IML")
+legend("topright", legend= text, col= c("red", "blue"), pch= "l")
+endsubmit;
+
+
+/* Gamma distribution */
+
+sample = {20, 30, 50, 80, 100, 200};
+gamma= j(nrow(sample), 2, .);
+gamma_R= j(nrow(sample), 2, .);
+guess= 1 || 0.1;
+method= {"L-BFGS-B"};
+do i=1 to nrow(sample);
+n= sample[i];
+gamma[i, ]= gamma_optim_mse(n, 1000, 1234, 2, 0.5, guess);
+gamma_R[i, ]= gamma_optim_mse_R(n, 1000, 1234, 2, 0.5, guess, method);
+end;
+
+gamma= round(gamma, 0.001);
+gamma_R= round(gamma_R, 0.001);
+
+print sample gamma_R gamma;
+
+/* Line plot */
+holder= sample || gamma_R || gamma;
+run ExportMatrixToR(holder, "holder");
+submit / R;
+x <- holder[ , 1]
+y <- holder[ , 2]
+z <- holder[ , 4]
+plot(x, y, type= "l", col= "red", xlab= "Sample size", ylab="MSE", main= "GAMMA: MSE for the shape")
+lines(x, z, col="blue")
+text <- c("MSE in R", "MSE in IML")
+legend("topright", legend= text, col= c("red", "blue"), pch= "l")
+endsubmit;
+
+submit / R;
+y1 <- holder[ , 3]
+z1 <- holder[ , 5]
+plot(x, y1, type= "l", col= "red", xlab= "Sample size", ylab="MSE", main= "GAMMA: MSE for the rate")
+lines(x, z1, col="blue")
+text <- c("MSE in R", "MSE in IML")
+legend("topright", legend= text, col= c("red", "blue"), pch= "l")
+endsubmit;
+
+
+
+/* Varying the optimization method */
+
+/* Normal distribution */
+
+guess= 1 || 2;
+norm_bfgs= norm_optim_mse_R(20, 1000, 1234, 2, 3, guess, "L-BFGS-B");
+norm_nm= norm_optim_mse_R(20, 1000, 1234, 2, 3, guess, "Nelder-Mead");
+delta= norm_bfgs - norm_nm;
+print delta;
+
+/* Gamma distribution */
+
+guess= 1 || 0.1;
+gamma_bfgs=  gamma_optim_mse_R(20, 1000, 1234, 2, 0.5, guess, "L-BFGS-B");
+gamma_nm=  gamma_optim_mse_R(20, 1000, 1234, 2, 0.5, guess, "Nelder-Mead");
+delta= gamma_bfgs - gamma_nm;
+print delta;
+
+
+/* Varying the parameter value */
+
+param = {1, 3, 5, 7, 9, 10};
+exp= j(nrow(param), 1, .);
+exp_R= j(nrow(param), 1, .);
+do i=1 to nrow(param);
+p= param[i];
+g= p-0.5;
+start_values= g || 12;
+n= sample[i];
+exp[i]= exp_optim_mse(30, 1000, 1234, p, g);
+exp_R[i]= exp_optim_mse_R(30, 1000, 1234, p, start_values);
+end;
+
+exp= round(exp, 0.001);
+exp_R= round(exp_R, 0.001);
+
+print param exp_R exp;
+
+
